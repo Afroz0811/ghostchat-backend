@@ -2,8 +2,9 @@ const router  = require("express").Router();
 const Message = require("../models/Message");
 const Chat    = require("../models/Chat");
 const auth    = require("../middleware/auth");
-const { decrypt } = require("../middleware/encryption");
+const { decrypt, encrypt } = require("../middleware/encryption");
 
+// GET /api/messages/:chatId — fetch messages
 router.get("/:chatId", auth, async (req, res) => {
   try {
     const chat = await Chat.findOne({ _id:req.params.chatId, members:req.user._id });
@@ -20,9 +21,7 @@ router.get("/:chatId", auth, async (req, res) => {
 
     const decrypted = messages.reverse().map(msg => {
       const m = msg.toObject();
-
       if (m.type === "text" && m.text && m.iv) {
-        // Decrypt text messages
         try { m.text = decrypt(m.text, m.iv); }
         catch { m.text = "🔒 Could not decrypt"; }
       } else if (m.type === "image") {
@@ -32,12 +31,10 @@ router.get("/:chatId", auth, async (req, res) => {
       } else if (m.type === "document") {
         m.text = `📄 ${m.fileName || "Document"}`;
       }
-
       delete m.iv;
       return m;
     });
 
-    // Mark as read
     await Message.updateMany(
       { chatId:req.params.chatId, from:{ $ne:req.user._id }, status:{ $ne:"read" } },
       { $set:{ status:"read" }, $addToSet:{ readBy:req.user._id } }
@@ -50,6 +47,26 @@ router.get("/:chatId", auth, async (req, res) => {
   }
 });
 
+// PATCH /api/messages/:id — edit message
+router.patch("/:id", auth, async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text?.trim()) return res.status(400).json({ error:"Text required" });
+    const msg = await Message.findOne({ _id:req.params.id, from:req.user._id });
+    if (!msg) return res.status(404).json({ error:"Message not found" });
+    if (msg.type !== "text") return res.status(400).json({ error:"Can only edit text messages" });
+    const { encrypted, iv } = encrypt(text.trim());
+    msg.text   = encrypted;
+    msg.iv     = iv;
+    msg.edited = true;
+    await msg.save();
+    res.json({ message:"Updated" });
+  } catch (err) {
+    res.status(500).json({ error:"Server error" });
+  }
+});
+
+// DELETE /api/messages/:id — delete message
 router.delete("/:id", auth, async (req, res) => {
   try {
     const msg = await Message.findOne({ _id:req.params.id, from:req.user._id });
