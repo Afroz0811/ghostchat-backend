@@ -5,6 +5,7 @@ const Message = require("../models/Message");
 const { encrypt } = require("../middleware/encryption");
 
 module.exports = (io) => {
+
   io.use(async (socket, next) => {
     try {
       const token = socket.handshake.auth?.token;
@@ -25,33 +26,68 @@ module.exports = (io) => {
 
     socket.on("message:send", async (data, callback) => {
       try {
-        const { chatId, text } = data;
-        if (!text?.trim()) return;
+        const { chatId, text, type, fileUrl, fileName, fileSize } = data;
+        if (!text?.trim() && !fileUrl) return;
         const chat = await Chat.findOne({ _id:chatId, members:socket.user._id });
         if (!chat) return;
-        const { encrypted, iv } = encrypt(text.trim());
-        const msg = await Message.create({ chatId, from:socket.user._id, text:encrypted, iv, status:"sent" });
+
+        let msgData = { chatId, from:socket.user._id, type:type||"text", status:"sent" };
+
+        if (fileUrl) {
+          msgData.fileUrl  = fileUrl;
+          msgData.fileName = fileName || "file";
+          msgData.fileSize = fileSize || 0;
+          msgData.text     = "";
+          msgData.iv       = "";
+        } else {
+          const { encrypted, iv } = encrypt(text.trim());
+          msgData.text = encrypted;
+          msgData.iv   = iv;
+        }
+
+        const msg = await Message.create(msgData);
         await msg.populate("from", "username avatar");
-        await Chat.findByIdAndUpdate(chatId, { lastMessage:{ text:encrypted, iv, from:socket.user._id, time:new Date() } });
-        const payload = { ...msg.toObject(), text:text.trim(), iv:undefined };
+
+        const lastText = fileUrl
+          ? (type==="image" ? "📸 Image" : type==="audio" ? "🎤 Voice message" : `📄 ${fileName}`)
+          : text.trim();
+
+        await Chat.findByIdAndUpdate(chatId, {
+          lastMessage: { text:lastText, iv:"", from:socket.user._id, time:new Date() }
+        });
+
+        const payload = { ...msg.toObject(), text: fileUrl ? lastText : text?.trim(), iv:undefined };
         io.to(chatId).emit("message:new", payload);
-        const onlineMembers = await User.find({ _id:{ $in:chat.members, $ne:socket.user._id }, status:"online" });
+
+        const onlineMembers = await User.find({
+          _id: { $in:chat.members, $ne:socket.user._id }, status:"online"
+        });
         if (onlineMembers.length > 0) {
           await Message.findByIdAndUpdate(msg._id, { status:"delivered" });
           io.to(chatId).emit("message:status", { messageId:msg._id, status:"delivered" });
         }
         if (callback) callback({ success:true, messageId:msg._id });
-      } catch (err) { if (callback) callback({ success:false }); }
+      } catch (err) {
+        console.error("message:send error", err);
+        if (callback) callback({ success:false });
+      }
     });
 
     socket.on("typing:start", ({ chatId }) => socket.to(chatId).emit("typing:start", { userId:socket.user._id, username:socket.user.username }));
     socket.on("typing:stop",  ({ chatId }) => socket.to(chatId).emit("typing:stop",  { userId:socket.user._id }));
+
     socket.on("message:read", async ({ chatId }) => {
-      await Message.updateMany({ chatId, from:{ $ne:socket.user._id }, status:{ $ne:"read" } }, { $set:{ status:"read" }, $addToSet:{ readBy:socket.user._id } });
+      await Message.updateMany(
+        { chatId, from:{ $ne:socket.user._id }, status:{ $ne:"read" } },
+        { $set:{ status:"read" }, $addToSet:{ readBy:socket.user._id } }
+      );
       socket.to(chatId).emit("message:read", { chatId, readBy:socket.user._id });
     });
+
     socket.on("chat:join", ({ chatId }) => socket.join(chatId));
+
     socket.on("disconnect", async () => {
+      console.log(`👋 ${socket.user.username} disconnected`);
       await User.findByIdAndUpdate(socket.user._id, { status:"offline", socketId:null, lastSeen:new Date() });
       socket.broadcast.emit("user:status", { userId:socket.user._id, status:"offline" });
     });

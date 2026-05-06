@@ -11,6 +11,7 @@ const authRoutes    = require("./routes/auth");
 const chatRoutes    = require("./routes/chats");
 const messageRoutes = require("./routes/messages");
 const userRoutes    = require("./routes/users");
+const uploadRoutes  = require("./routes/upload");
 const socketHandler = require("./socket/handler");
 
 const app    = express();
@@ -19,25 +20,21 @@ const io     = new Server(server, {
   cors: { origin: "*", methods: ["GET","POST"] }
 });
 
-// ── Middleware ────────────────────────────────────────────────────────────────
-app.use(cors());
+app.use(cors({ origin: "*", credentials: true }));
 app.use(express.json());
 
-// ── Routes ────────────────────────────────────────────────────────────────────
-app.get("/",         (req, res) => res.json({ status:"GhostChat API running 👻", version:"1.0.0" }));
-app.use("/api/auth", authRoutes);
+app.get("/",             (req, res) => res.json({ status:"GhostChat API running 👻", version:"1.0.0" }));
+app.use("/api/auth",     authRoutes);
 app.use("/api/chats",    chatRoutes);
 app.use("/api/messages", messageRoutes);
 app.use("/api/users",    userRoutes);
+app.use("/api/upload",   uploadRoutes);
 
-// ── Socket.io ─────────────────────────────────────────────────────────────────
 socketHandler(io);
 
-// ── MongoDB ───────────────────────────────────────────────────────────────────
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => console.log("✅ MongoDB connected"))
   .catch(err => console.error("❌ MongoDB error:", err));
 
-// ── Start ─────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => console.log(`🚀 GhostChat server on port ${PORT}`));
