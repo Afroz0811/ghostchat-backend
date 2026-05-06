@@ -9,6 +9,7 @@ const messageSchema = new mongoose.Schema({
   fileUrl:   { type:String, default:null },
   fileName:  { type:String, default:null },
   fileSize:  { type:Number, default:null },
+  edited:    { type:Boolean, default:false },
   status:    { type:String, enum:["sent","delivered","read"], default:"sent" },
   readBy:    [{ type:mongoose.Schema.Types.ObjectId, ref:"User" }],
   deletedAt: { type:Date, default:null },
