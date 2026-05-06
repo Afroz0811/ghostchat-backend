@@ -46,17 +46,30 @@ router.post("/", auth, upload.single("file"), async (req, res) => {
     const isAudio = mime.startsWith("audio/");
     const type    = isImage ? "image" : isAudio ? "audio" : "document";
 
+    const originalName = req.file.originalname;
+
     const options = {
-      folder:        "ghostchat",
-      resource_type: isAudio ? "video" : isImage ? "image" : "raw",
-      public_id:     `${Date.now()}-${Math.round(Math.random()*1e6)}`,
+      folder:           "ghostchat",
+      resource_type:    isAudio ? "video" : isImage ? "image" : "raw",
+      public_id:        `${Date.now()}-${Math.round(Math.random()*1e6)}`,
+      use_filename:     true,
+      unique_filename:  false,
     };
 
     const result = await uploadToCloudinary(req.file.buffer, options);
 
+    // For documents, append fl_attachment to force download with correct filename
+    let fileUrl = result.secure_url;
+    if (!isImage && !isAudio) {
+      fileUrl = result.secure_url.replace(
+        "/upload/",
+        `/upload/fl_attachment:${encodeURIComponent(originalName).replace(/%/g, "%25")}/`
+      );
+    }
+
     res.json({
-      url:      result.secure_url,
-      filename: req.file.originalname,
+      url:      fileUrl,
+      filename: originalName,
       size:     req.file.size,
       mimetype: mime,
       type,
