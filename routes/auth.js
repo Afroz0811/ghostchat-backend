@@ -38,5 +38,23 @@ router.post("/logout", require("../middleware/auth"), async (req, res) => {
     res.json({ message:"Logged out successfully" });
   } catch (err) { res.status(500).json({ error:"Server error" }); }
 });
+// DELETE /api/auth/account — permanently delete account
+router.delete("/account", require("../middleware/auth"), async (req, res) => {
+  try {
+    const userId = req.user._id;
+    // Delete all messages sent by user
+    await require("../models/Message").deleteMany({ from: userId });
+    // Remove user from all chats
+    const Chat = require("../models/Chat");
+    await Chat.updateMany({ members: userId }, { $pull: { members: userId } });
+    // Delete empty chats
+    await Chat.deleteMany({ members: { $size: 0 } });
+    // Delete user
+    await require("../models/User").findByIdAndDelete(userId);
+    res.json({ message: "Account deleted successfully" });
+  } catch(err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
 
 module.exports = router;
