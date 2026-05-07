@@ -91,7 +91,7 @@ module.exports = (io) => {
     socket.on("chat:join", ({ chatId }) => socket.join(chatId));
 
     // ── VOICE CALL SIGNALING ──────────────────────────────────────────────────
-    socket.on("call:initiate", async ({ chatId, to }) => {
+    socket.on("call:initiate", async ({ chatId, to, isGroup }) => {
       try {
         const targetUser = await User.findById(to);
         if (targetUser?.socketId) {
@@ -100,17 +100,21 @@ module.exports = (io) => {
             username: socket.user.username,
             avatar:   socket.user.avatar,
             chatId,
+            isGroup:  !!isGroup,
           });
         }
       } catch(e) { console.error("call:initiate error", e); }
     });
 
-    socket.on("call:accept", async ({ to, chatId }) => {
+    socket.on("call:accept", async ({ to, chatId, username, avatar }) => {
       try {
         const targetUser = await User.findById(to);
         if (targetUser?.socketId) {
           io.to(targetUser.socketId).emit("call:accepted", {
-            from: socket.user._id, chatId
+            from:     socket.user._id,
+            username: socket.user.username,
+            avatar:   socket.user.avatar,
+            chatId,
           });
         }
       } catch(e) { console.error("call:accept error", e); }
