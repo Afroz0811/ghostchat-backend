@@ -33,6 +33,28 @@ app.use("/api/messages", messageRoutes);
 app.use("/api/users",    userRoutes);
 app.use("/api/upload",   uploadRoutes);
 
+// ── Download helper — follows redirects ────────────────────────────────────────
+function fetchWithRedirect(url, res, cleanName, maxRedirects) {
+  if (maxRedirects === 0) return res.status(500).json({ error:"Too many redirects" });
+  https.get(url, (fileRes) => {
+    // Follow redirects (Cloudinary uses these for raw files)
+    if ([301,302,303,307,308].includes(fileRes.statusCode) && fileRes.headers.location) {
+      return fetchWithRedirect(fileRes.headers.location, res, cleanName, maxRedirects - 1);
+    }
+    if (fileRes.statusCode !== 200) {
+      return res.status(fileRes.statusCode).json({ error:"File not found" });
+    }
+    const contentType = fileRes.headers["content-type"] || "application/octet-stream";
+    res.setHeader("Content-Disposition", `attachment; filename="${cleanName}"`);
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    fileRes.pipe(res);
+  }).on("error", (err) => {
+    console.error("Proxy error:", err);
+    res.status(500).json({ error:"Download failed" });
+  });
+}
+
 // ── File Download Proxy (fixes mobile CORS) ────────────────────────────────────
 app.get("/api/download", (req, res) => {
   try {
@@ -41,31 +63,18 @@ app.get("/api/download", (req, res) => {
 
     const decodedUrl = decodeURIComponent(url);
 
-    // Clean filename — remove Cloudinary added extensions
+    // Clean filename — remove wrong extensions added by Cloudinary
     let cleanName = name ? decodeURIComponent(name) : "file";
     const parts = cleanName.split(".");
     if (parts.length > 2) {
-      const knownExts = ["xlsx","xls","pdf","doc","docx","txt","csv","webm","mp3","wav","mp4","ogg"];
-      if (!knownExts.includes(parts[parts.length-1].toLowerCase())) {
+      const known = ["xlsx","xls","pdf","doc","docx","txt","csv","webm","mp3","wav","mp4","ogg","png","jpg","jpeg","gif"];
+      if (!known.includes(parts[parts.length-1].toLowerCase())) {
         parts.pop();
         cleanName = parts.join(".");
       }
     }
 
-    https.get(decodedUrl, (fileRes) => {
-      if (fileRes.statusCode !== 200) {
-        return res.status(fileRes.statusCode).json({ error:"File not found" });
-      }
-      const contentType = fileRes.headers["content-type"] || "application/octet-stream";
-      res.setHeader("Content-Disposition", `attachment; filename="${cleanName}"`);
-      res.setHeader("Content-Type", contentType);
-      res.setHeader("Access-Control-Allow-Origin", "*");
-      fileRes.pipe(res);
-    }).on("error", (err) => {
-      console.error("Proxy error:", err);
-      res.status(500).json({ error:"Download failed" });
-    });
-
+    fetchWithRedirect(decodedUrl, res, cleanName, 5);
   } catch(e) {
     console.error("Download error:", e);
     res.status(500).json({ error:"Download failed: " + e.message });
