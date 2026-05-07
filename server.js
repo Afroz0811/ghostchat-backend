@@ -1,72 +1,39 @@
-const express    = require("express");
-const http       = require("http");
-const { Server } = require("socket.io");
-const mongoose   = require("mongoose");
-const cors       = require("cors");
-const dotenv     = require("dotenv");
-
-dotenv.config();
-
-const authRoutes    = require("./routes/auth");
-const chatRoutes    = require("./routes/chats");
-const messageRoutes = require("./routes/messages");
-const userRoutes    = require("./routes/users");
-const uploadRoutes  = require("./routes/upload");
-const socketHandler = require("./socket/handler");
-
-const app    = express();
-const server = http.createServer(app);
-const io     = new Server(server, {
-  cors: { origin: "*", methods: ["GET","POST"] }
-});
-
-// ── Middleware ─────────────────────────────────────────────────────────────────
-app.use(cors({ origin: "*", credentials: true }));
-app.use(express.json());
-
-// ── Routes ─────────────────────────────────────────────────────────────────────
-app.get("/", (req, res) => res.json({ status:"GhostChat API running 👻", version:"1.0.0" }));
-app.use("/api/auth",     authRoutes);
-app.use("/api/chats",    chatRoutes);
-app.use("/api/messages", messageRoutes);
-app.use("/api/users",    userRoutes);
-app.use("/api/upload",   uploadRoutes);
-
-// ── File Download Proxy (fixes mobile CORS issue) ──────────────────────────────
+// ── File Download Proxy ────────────────────────────────────────────────────────
 app.get("/api/download", async (req, res) => {
   try {
     const { url, name } = req.query;
-    if (!url) return res.status(400).json({ error:"No URL provided" });
+    if (!url) return res.status(400).json({ error:"No URL" });
 
     const https  = require("https");
     const http2  = require("http");
-    const parsed = new URL(url);
+    const parsed = new URL(decodeURIComponent(url));
     const client = parsed.protocol === "https:" ? https : http2;
 
-    client.get(url, (fileRes) => {
+    // Clean filename — remove any extra extensions added by Cloudinary
+    let cleanName = name || "file";
+    // Remove duplicate extensions like file.xlsx.gif → file.xlsx
+    const parts = cleanName.split(".");
+    if (parts.length > 2) {
+      const knownExts = ["xlsx","xls","pdf","doc","docx","txt","csv","webm","mp3","wav"];
+      if (!knownExts.includes(parts[parts.length-1].toLowerCase())) {
+        parts.pop(); // remove last extension if not a known type
+        cleanName = parts.join(".");
+      }
+    }
+
+    client.get(decodeURIComponent(url), (fileRes) => {
+      if (fileRes.statusCode !== 200) {
+        return res.status(fileRes.statusCode).json({ error:"File not found" });
+      }
       const contentType = fileRes.headers["content-type"] || "application/octet-stream";
-      res.setHeader("Content-Disposition", `attachment; filename="${name || "file"}"`);
+      res.setHeader("Content-Disposition", `attachment; filename="${cleanName}"`);
       res.setHeader("Content-Type", contentType);
       res.setHeader("Access-Control-Allow-Origin", "*");
       fileRes.pipe(res);
     }).on("error", (err) => {
-      console.error("Download proxy error:", err);
       res.status(500).json({ error:"Download failed" });
     });
   } catch(e) {
-    console.error("Download error:", e);
     res.status(500).json({ error:"Download failed: " + e.message });
   }
 });
-
-// ── Socket.io ──────────────────────────────────────────────────────────────────
-socketHandler(io);
-
-// ── MongoDB ────────────────────────────────────────────────────────────────────
-mongoose.connect(process.env.MONGODB_URI)
-  .then(() => console.log("✅ MongoDB connected"))
-  .catch(err => console.error("❌ MongoDB error:", err));
-
-// ── Start ──────────────────────────────────────────────────────────────────────
-const PORT = process.env.PORT || 3001;
-server.listen(PORT, () => console.log(`🚀 GhostChat server on port ${PORT}`));
