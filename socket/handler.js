@@ -24,6 +24,7 @@ module.exports = (io) => {
     chats.forEach(chat => socket.join(chat._id.toString()));
     socket.broadcast.emit("user:status", { userId:socket.user._id, status:"online" });
 
+    // ── SEND MESSAGE ──────────────────────────────────────────────────────────
     socket.on("message:send", async (data, callback) => {
       try {
         const { chatId, text, type, fileUrl, fileName, fileSize } = data;
@@ -73,9 +74,11 @@ module.exports = (io) => {
       }
     });
 
+    // ── TYPING ────────────────────────────────────────────────────────────────
     socket.on("typing:start", ({ chatId }) => socket.to(chatId).emit("typing:start", { userId:socket.user._id, username:socket.user.username }));
     socket.on("typing:stop",  ({ chatId }) => socket.to(chatId).emit("typing:stop",  { userId:socket.user._id }));
 
+    // ── READ ──────────────────────────────────────────────────────────────────
     socket.on("message:read", async ({ chatId }) => {
       await Message.updateMany(
         { chatId, from:{ $ne:socket.user._id }, status:{ $ne:"read" } },
@@ -84,11 +87,98 @@ module.exports = (io) => {
       socket.to(chatId).emit("message:read", { chatId, readBy:socket.user._id });
     });
 
+    // ── JOIN CHAT ─────────────────────────────────────────────────────────────
     socket.on("chat:join", ({ chatId }) => socket.join(chatId));
 
+    // ── VOICE CALL SIGNALING ──────────────────────────────────────────────────
+    socket.on("call:initiate", async ({ chatId, to }) => {
+      try {
+        const targetUser = await User.findById(to);
+        if (targetUser?.socketId) {
+          io.to(targetUser.socketId).emit("call:incoming", {
+            from:     socket.user._id,
+            username: socket.user.username,
+            avatar:   socket.user.avatar,
+            chatId,
+          });
+        }
+      } catch(e) { console.error("call:initiate error", e); }
+    });
+
+    socket.on("call:accept", async ({ to, chatId }) => {
+      try {
+        const targetUser = await User.findById(to);
+        if (targetUser?.socketId) {
+          io.to(targetUser.socketId).emit("call:accepted", {
+            from: socket.user._id, chatId
+          });
+        }
+      } catch(e) { console.error("call:accept error", e); }
+    });
+
+    socket.on("call:reject", async ({ to }) => {
+      try {
+        const targetUser = await User.findById(to);
+        if (targetUser?.socketId) {
+          io.to(targetUser.socketId).emit("call:rejected", {
+            from: socket.user._id
+          });
+        }
+      } catch(e) { console.error("call:reject error", e); }
+    });
+
+    socket.on("call:end", async ({ to }) => {
+      try {
+        const targetUser = await User.findById(to);
+        if (targetUser?.socketId) {
+          io.to(targetUser.socketId).emit("call:ended", {
+            from: socket.user._id
+          });
+        }
+      } catch(e) { console.error("call:end error", e); }
+    });
+
+    socket.on("call:offer", async ({ to, offer }) => {
+      try {
+        const targetUser = await User.findById(to);
+        if (targetUser?.socketId) {
+          io.to(targetUser.socketId).emit("call:offer", {
+            from: socket.user._id, offer
+          });
+        }
+      } catch(e) { console.error("call:offer error", e); }
+    });
+
+    socket.on("call:answer", async ({ to, answer }) => {
+      try {
+        const targetUser = await User.findById(to);
+        if (targetUser?.socketId) {
+          io.to(targetUser.socketId).emit("call:answer", {
+            from: socket.user._id, answer
+          });
+        }
+      } catch(e) { console.error("call:answer error", e); }
+    });
+
+    socket.on("call:ice", async ({ to, candidate }) => {
+      try {
+        const targetUser = await User.findById(to);
+        if (targetUser?.socketId) {
+          io.to(targetUser.socketId).emit("call:ice", {
+            from: socket.user._id, candidate
+          });
+        }
+      } catch(e) { console.error("call:ice error", e); }
+    });
+
+    // ── DISCONNECT ────────────────────────────────────────────────────────────
     socket.on("disconnect", async () => {
       console.log(`👋 ${socket.user.username} disconnected`);
-      await User.findByIdAndUpdate(socket.user._id, { status:"offline", socketId:null, lastSeen:new Date() });
+      await User.findByIdAndUpdate(socket.user._id, {
+        status:   "offline",
+        socketId: null,
+        lastSeen: new Date()
+      });
       socket.broadcast.emit("user:status", { userId:socket.user._id, status:"offline" });
     });
   });
