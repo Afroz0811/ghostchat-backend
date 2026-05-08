@@ -32,6 +32,7 @@ app.use("/api/chats",    chatRoutes);
 app.use("/api/messages", messageRoutes);
 app.use("/api/users",    userRoutes);
 app.use("/api/upload",   uploadRoutes);
+app.use("/api/wallet", require("./routes/wallet"));
 
 // ── Download helper — follows redirects ────────────────────────────────────────
 function fetchWithRedirect(url, res, cleanName, maxRedirects) {
