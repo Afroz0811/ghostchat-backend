@@ -9,7 +9,7 @@ const RPCS = [
 
 function httpsGet(url) {
   return new Promise((resolve, reject) => {
-    https.get(url, { headers:{"User-Agent":"Mozilla/5.0"} }, r => {
+    https.get(url, { headers:{"User-Agent":"GhostChat/1.0"} }, r => {
       let raw = "";
       r.on("data", c => raw += c);
       r.on("end", () => { try { resolve(JSON.parse(raw)); } catch(e) { reject(e); } });
@@ -22,7 +22,11 @@ function rpcPost(host, body) {
     const data = JSON.stringify(body);
     const r = https.request({
       hostname: host, path: "/", method: "POST",
-      headers: {"Content-Type":"application/json","Content-Length":Buffer.byteLength(data)}
+      headers: {
+        "Content-Type":   "application/json",
+        "Content-Length": Buffer.byteLength(data),
+        "User-Agent":     "GhostChat/1.0"
+      }
     }, res => {
       let raw = "";
       res.on("data", c => raw += c);
@@ -33,7 +37,7 @@ function rpcPost(host, body) {
   });
 }
 
-// POST /api/wallet/rpc
+// POST /api/wallet/rpc — proxy Solana RPC
 router.post("/rpc", auth, async (req, res) => {
   const { method, params } = req.body;
   if (!method) return res.status(400).json({ error:"method required" });
@@ -49,7 +53,7 @@ router.post("/rpc", auth, async (req, res) => {
 // GET /api/wallet/price?ids=solana
 router.get("/price", auth, async (req, res) => {
   try {
-    const ids = req.query.ids || "solana";
+    const ids  = req.query.ids || "solana";
     const data = await httpsGet(
       `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`
     );
@@ -59,23 +63,22 @@ router.get("/price", auth, async (req, res) => {
   }
 });
 
-// GET /api/wallet/token-meta?mints=mint1,mint2,...
-// Uses Jupiter token list to get name/symbol/logo for Solana tokens
+// GET /api/wallet/token-meta?mints=mint1,mint2
+// Returns name, symbol, logo for each mint using Jupiter token list
 router.get("/token-meta", auth, async (req, res) => {
   try {
     const mints = (req.query.mints || "").split(",").filter(Boolean);
     if (!mints.length) return res.json({});
 
-    // Fetch Jupiter full token list (has 99% of Solana tokens)
     const tokenList = await httpsGet("https://token.jup.ag/all");
     const meta = {};
     tokenList.forEach(t => {
       if (mints.includes(t.address)) {
         meta[t.address] = {
-          symbol:  t.symbol,
-          name:    t.name,
-          logo:    t.logoURI,
-          decimals:t.decimals,
+          symbol:   t.symbol,
+          name:     t.name,
+          logo:     t.logoURI,
+          decimals: t.decimals,
         };
       }
     });
@@ -86,15 +89,17 @@ router.get("/token-meta", auth, async (req, res) => {
 });
 
 // GET /api/wallet/token-price?mints=mint1,mint2
-// Uses Jupiter Price API for any Solana token price
+// Returns { mint: price } using Jupiter Price API v6
 router.get("/token-price", auth, async (req, res) => {
   try {
     const mints = req.query.mints || "";
     if (!mints) return res.json({});
+
     const data = await httpsGet(
       `https://price.jup.ag/v6/price?ids=${mints}`
     );
-    // Return simplified { mint: price } map
+
+    // Convert to simple { mint: price } map
     const prices = {};
     Object.entries(data?.data || {}).forEach(([id, info]) => {
       prices[id] = info.price || 0;
