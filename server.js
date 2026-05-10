@@ -34,6 +34,7 @@ app.use("/api/users",    userRoutes);
 app.use("/api/upload",   uploadRoutes);
 app.use("/api/wallet", require("./routes/wallet"));
 app.use("/api/status", require("./routes/status"));
+app.use("/api/issues", require("./routes/issues"));
 
 // ── Download helper — follows redirects ────────────────────────────────────────
 function fetchWithRedirect(url, res, cleanName, maxRedirects) {
